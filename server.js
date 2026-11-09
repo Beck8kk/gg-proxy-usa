@@ -1,34 +1,28 @@
 const express = require('express');
-const fs = require('fs');
 const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Configuração de User-Agent para evitar bloqueios de bot
-const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+// User-Agent para parecer um navegador Chrome moderno
+const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-// Função principal: O Proxy
+// Rota do Proxy
 app.get('/proxy', (req, res) => {
     const targetUrl = req.query.url;
 
     if (!targetUrl) {
-        res.redirect('/');
-        return;
+        return res.redirect('/');
     }
 
-    // Sanitização básica
     if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
-        res.status(400).send('Invalid URL');
-        return;
+        targetUrl = 'https://' + targetUrl;
     }
 
-    // Header para indicar que é uma resposta de proxy (útil para debugging)
-    res.setHeader('X-Proxy-Original', targetUrl);
-
+    // Faz o fetch real da internet
     fetch(targetUrl, {
         headers: {
-            'User-Agent': DEFAULT_USER_AGENT,
+            'User-Agent': USER_AGENT,
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.5'
         },
@@ -37,161 +31,105 @@ app.get('/proxy', (req, res) => {
     .then(response => {
         const contentType = response.headers.get('content-type') || '';
         
-        // Headers importantes para CORS e Cache
+        // REMOVE HEADERS QUE BLOQUEIAM O PROXY
         res.setHeader('Content-Type', contentType);
+        res.removeHeader('X-Frame-Options');
+        res.removeHeader('Content-Security-Policy');
+        res.removeHeader('X-Content-Type-Options');
         res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('X-Frame-Options', 'SAMEORIGIN'); // Permite iframes
 
-        // Ler o corpo
         response.text().then(body => {
             if (contentType.includes('text/html')) {
-                const rewrittenBody = rewriteHtml(body, targetUrl, req);
-                res.send(rewrittenBody);
+                res.send(rewriteHtml(body, targetUrl));
             } else {
                 res.send(body);
             }
         });
     })
     .catch(error => {
-        console.error('Proxy Error:', error);
-        res.status(502).send(`Proxy Error: ${error.message}`);
+        // MENSAGEM DE ERRO VISÍVEL (não mais fundo azul vazio)
+        const errorHtml = `
+            <html lang="pt-BR">
+            <head><title>GG Proxy USA - Erro</title>
+            <style>
+                body { background: #0f111a; color: #e0e0e0; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+                .error-box { background: #1a1d29; padding: 2rem; border-radius: 12px; border: 1px solid #ff4d4d; max-width: 600px; }
+                h2 { color: #ff4d4d; margin-top: 0; }
+                pre { background: #000; padding: 10px; border-radius: 5px; overflow-x: auto; font-size: 0.8rem; }
+                a { color: #00d2ff; }
+            </style></head>
+            <body>
+                <div class="error-box">
+                    <h2>⚠️ Erro no Proxy</h2>
+                    <p>O site de destino não respondeu ou o proxy falhou ao reescrever o conteúdo.</p>
+                    <p><strong>URL solicitada:</strong> ${targetUrl}</p>
+                    <p><strong>Detalhe:</strong> ${error.message}</p>
+                    <a href="/">← Voltar para o GG Proxy USA</a>
+                </div>
+            </body>
+            </html>
+        `;
+        res.status(502).send(errorHtml);
     });
 });
 
-// Servir a Homepage
+// Rota da Home
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// Lógica de Rewriting HTML
-function rewriteHtml(html, baseUrl, req) {
-    // Extrai o host da URL base para relativo
-    const url = new URL(baseUrl);
-    const protocol = url.protocol;
-    const host = url.host;
-
-    // 1. Injetar CSS para esconder scrollbars e ajustar layout
-    const proxyCss = `
-        <style id="gg-proxy-css">
-            /* Ajustes globais para o proxy */
-            html { overflow-y: scroll; }
-            /* Esconder iframes que podem quebrar o layout se não ajustados */
-            /* Opcional: Escalar o conteúdo se necessário */
-        </style>
-    `;
-
-    // 2. Injetar Script de Rewrite
-    const proxyScript = `
+// FUNÇÃO DE REWRITING APRIMORADA
+function rewriteHtml(html, baseUrl) {
+    const PROXY_PREFIX = '/proxy?url=';
+    
+    // Script de correção dinâmica (para JS que carrega depois)
+    const injectScript = `
         <script>
-            // Script para reescrever links dinâmicos e iframes
-            const PROXY_PREFIX = '/proxy?url=';
-            
-            function rewriteUrl(url, currentBase) {
-                if (!url || url.startsWith('data:') || url.startsWith('javascript:')) return url;
-                if (url.startsWith('/proxy?url=')) return url;
-                
-                let absoluteUrl = url;
+            const PROXY = '/proxy?url=';
+            function rewriteUrl(url) {
+                if (!url || url.startsWith('data:') || url.startsWith('javascript:') || url.startsWith('/proxy?url=')) return url;
                 try {
-                    absoluteUrl = new URL(url, currentBase).href;
-                } catch(e) {
-                    return url;
-                }
-
-                if (absoluteUrl.startsWith('http://') || absoluteUrl.startsWith('https://')) {
-                    return PROXY_PREFIX + encodeURIComponent(absoluteUrl);
-                }
+                    const absUrl = new URL(url, window.location.href).href;
+                    if (absUrl.startsWith('http')) return PROXY + encodeURIComponent(absUrl);
+                } catch(e) {}
                 return url;
             }
-
-            // Reescrever atributos no DOM
-            function processDom() {
-                const currentUrl = window.location.href;
-                // Extrai a URL real por trás do proxy para usar como base
-                const proxyMatch = currentUrl.match(/url=([^&]*)/);
-                const baseHref = proxyMatch ? decodeURIComponent(proxyMatch[1]) : window.location.origin;
-
-                // Links <a>
-                document.querySelectorAll('a[href]').forEach(el => {
-                    const href = el.getAttribute('href');
-                    if (href && !href.startsWith('javascript:')) {
-                        el.setAttribute('href', rewriteUrl(href, baseHref));
-                    }
-                });
-
-                // Imagens
-                document.querySelectorAll('img[src]').forEach(el => {
-                    const src = el.getAttribute('src');
-                    if (src) el.setAttribute('src', rewriteUrl(src, baseHref));
-                });
-
-                // Iframes
-                document.querySelectorAll('iframe[src]').forEach(el => {
-                    const src = el.getAttribute('src');
-                    if (src) el.setAttribute('src', rewriteUrl(src, baseHref));
-                });
-
-                // Backgrounds em inline styles
-                document.querySelectorAll('[style]').forEach(el => {
-                    let style = el.getAttribute('style');
-                    // Simple regex to replace url(...) in CSS
-                    style = style.replace(/url\\(['"]?([^'")]+)['"]?\\)/g, (match, p1) => {
-                        return 'url(' + rewriteUrl(p1, baseHref) + ')';
-                    });
-                    el.setAttribute('style', style);
-                });
-            }
-
-            // Executar quando o DOM estiver pronto
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', processDom);
-            } else {
-                processDom();
-            }
+            // Reescrever no DOM
+            document.querySelectorAll('a[href]').forEach(a => a.href = rewriteUrl(a.href));
+            document.querySelectorAll('img[src]').forEach(img => img.src = rewriteUrl(img.src));
+            document.querySelectorAll('iframe[src]').forEach(iframe => iframe.src = rewriteUrl(iframe.src));
+            document.querySelectorAll('source[src]').forEach(src => src.src = rewriteUrl(src.src));
+            document.querySelectorAll('link[href]').forEach(link => {
+                if (link.rel && link.rel.includes('stylesheet')) link.href = rewriteUrl(link.href);
+            });
         </script>
     `;
 
-    // Injeção simples: antes de </head>
-    let injectedHtml = html.replace(/<\/head>/i, `${proxyCss}${proxyScript}</head>`);
+    let finalHtml = html.replace(/<\/head>/i, injectScript + '</head>');
+    if (finalHtml === html) finalHtml = injectScript + html;
 
-    // Se não houver </head>, injeta no início
-    if (injectedHtml === html) {
-        injectedHtml = `${proxyCss}${proxyScript}${html}`;
-    }
-
-    // 3. Rewriting de Links Estáticos no HTML (Regex básico para performance inicial)
-    // Este passo cobre o HTML inicial antes do JS carregar
-    
-    // A tags
-    injectedHtml = injectedHtml.replace(/href=["']([^"']+)["']/gi, (match, p1) => {
-        if (p1.startsWith('data:') || p1.startsWith('javascript:')) return match;
-        const newHref = rewriteUrl(p1, baseUrl);
-        return `href="${newHref}"`;
+    // Rewriting de A tags
+    finalHtml = finalHtml.replace(/href=["']([^"']+)["']/gi, (match, p1) => {
+        if (p1.startsWith('data:') || p1.startsWith('javascript:') || p1.startsWith('/proxy?url=')) return match;
+        return `href="${rewriteUrlServer(p1, baseUrl)}"`;
     });
 
-    // Src tags (img, video, source)
-    injectedHtml = injectedHtml.replace(/src=["']([^"']+)["']/gi, (match, p1) => {
-        if (p1.startsWith('data:')) return match;
-        const newSrc = rewriteUrl(p1, baseUrl);
-        return `src="${newSrc}"`;
+    // Rewriting de Src tags
+    finalHtml = finalHtml.replace(/src=["']([^"']+)["']/gi, (match, p1) => {
+        if (p1.startsWith('data:') || p1.startsWith('/proxy?url=')) return match;
+        return `src="${rewriteUrlServer(p1, baseUrl)}"`;
     });
 
-    // URL em CSS (link rel=stylesheet)
-    injectedHtml = injectedHtml.replace(/href=["']([^"']+)["'] rel=["']stylesheet["']/gi, (match, p1) => {
-        const newHref = rewriteUrl(p1, baseUrl);
-        return `href="${newHref}" rel="stylesheet"`;
+    // Rewriting de CSS url()
+    finalHtml = finalHtml.replace(/url\\(['"]?([^'")]+)['"]?\\)/gi, (match, p1) => {
+        if (p1.startsWith('data:') || p1.startsWith('/proxy?url=')) return match;
+        return `url('${rewriteUrlServer(p1, baseUrl)}')`;
     });
 
-    // CSS url() dentro de <style>
-    injectedHtml = injectedHtml.replace(/url\(['"]?([^'")]+)['"]?\)/gi, (match, p1) => {
-        const newUrl = rewriteUrl(p1, baseUrl);
-        return `url('${newUrl}')`;
-    });
-
-    return injectedHtml;
+    return finalHtml;
 }
 
-// Função auxiliar no servidor para reescrever URLs de forma consistente
-function rewriteUrl(url, baseUrl) {
+function rewriteUrlServer(url, baseUrl) {
     if (!url) return url;
     if (url.startsWith('/proxy?url=')) return url;
     if (url.startsWith('data:') || url.startsWith('javascript:') || url.startsWith('#')) return url;
@@ -211,5 +149,4 @@ function rewriteUrl(url, baseUrl) {
 
 app.listen(PORT, () => {
     console.log(`GG Proxy USA rodando na porta ${PORT}`);
-    console.log(`Acesse: http://localhost:${PORT}`);
 });
