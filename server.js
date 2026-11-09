@@ -17,9 +17,18 @@ const proxy = createProxyMiddleware({
   pathRewrite: (path, req) => {
     try { const u = new URL(req.query.url || 'https://now.gg'); return u.pathname + u.search; } catch { return '/'; }
   },
-  onProxyRes: (proxyRes) => {
-    delete proxyRes.headers['x-frame-options'];
-    delete proxyRes.headers['content-security-policy'];
+  onProxyRes: (proxyRes, req) => {
+  delete proxyRes.headers['x-frame-options'];
+  delete proxyRes.headers['content-security-policy'];
+  // Traduz o redirecionamento do now.gg pra voltar pro proxy
+  if (proxyRes.headers['location']) {
+    try {
+      const base = new URL(req.query.url || 'https://now.gg');
+      const loc = new URL(proxyRes.headers['location'], base);
+      proxyRes.headers['location'] = '/proxy?url=' + encodeURIComponent(loc.toString());
+    } catch {}
+  }
+},
   },
   logLevel: 'silent'
 });
