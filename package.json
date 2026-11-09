@@ -1,12 +1,11 @@
 {
   "name": "gg-proxy-usa",
   "version": "1.0.0",
-  "description": "GG Proxy USA - Web Proxy with US IP",
   "main": "server.js",
-  "scripts": {
-    "start": "node server.js"
-  },
+  "scripts": { "start": "node server.js" },
   "dependencies": {
-    "express": "^4.18.2"
+    "@tomphttp/bare-server-node": "^2.0.1",
+    "express": "^4.18.2",
+    "ultraviolet-static": "^1.0.0"
   }
 }
