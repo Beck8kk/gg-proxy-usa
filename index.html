@@ -4,23 +4,26 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="google" content="notranslate">
+<meta name="googlebot" content="notranslate">
 <title>GG Proxy USA</title>
-<script src="/uv/uv.bundle.js"></script>
-<script src="/uv/uv.config.js"></script>
-<script src="/uv/uv.sw.js"></script>
 <style>
-  body{background:#0f172a;color:white;font-family:sans-serif;text-align:center;padding:20px}
-  input{width:75%;padding:13px;border-radius:10px;border:none;font-size:15px}
-  button{padding:13px 20px;border:none;border-radius:10px;background:#00d4ff;font-weight:bold;cursor:pointer;margin-top:10px}
+  body{background:#0f172a;color:white;font-family:sans-serif;text-align:center;padding:20px;margin:0}
+  h1{font-size:28px}
+  input{width:80%;max-width:500px;padding:13px;border-radius:10px;border:none;font-size:15px}
+  button{padding:13px 20px;border:none;border-radius:10px;background:#00d4ff;font-weight:bold;cursor:pointer;margin-top:10px;font-size:15px}
   .jogos button{background:#1e293b;color:white;margin:5px}
   #loading{display:none;position:fixed;inset:0;background:#0f172a;z-index:99;padding-top:35%;font-size:18px}
-  iframe{width:100%;height:85vh;border:none;background:white;border-radius:10px;margin-top:15px}
+  #visor{margin-top:15px}
+  iframe{width:100%;height:85vh;border:none;background:white;border-radius:10px}
 </style>
 </head>
 <body>
-<div id="loading">⏳<br>Carregando jogo...<br><small>Não fecha, o now.gg demora 10-20s</small></div>
+
+<div id="loading">⏳<br>Carregando...<br><small>Espera 10-20s, não fecha</small></div>
 
 <h1>GG <span style="color:#00d4ff">Proxy</span> USA 🇺🇸</h1>
+<p style="opacity:.7;font-size:13px">Navegue como se estivesse nos Estados Unidos</p>
+
 <input id="urlInput" value="https://now.gg" />
 <br><button id="goBtn">GO</button>
 
@@ -31,29 +34,35 @@
   <button onclick="irJogo('ninetynights')">🌲 99 Nights</button>
 </div>
 
-<button onclick="voltar()" style="background:#333;color:white">🏠 Home</button>
+<button onclick="voltar()" style="background:#333;color:white">🏠 Home / Voltar</button>
+
 <div id="visor"></div>
 
 <script>
-async function registrarSW(){
-  if('serviceWorker' in navigator){
-    try{ await navigator.serviceWorker.register('/uv/uv.sw.js', {scope: __uv$config.prefix}); console.log('SW ok'); }catch(e){ console.log('SW erro', e); }
-  }
-}
-registrarSW();
-
 function irPara(url){
   if(!url.startsWith('http')) url='https://'+url;
   localStorage.setItem('ultimaUrl', url);
   document.getElementById('loading').style.display='block';
-  const codificado = __uv$config.encodeUrl(url);
-  const final = __uv$config.prefix + codificado;
-  document.getElementById('visor').innerHTML = `<iframe src="${final}" allow="fullscreen; autoplay; clipboard-write; cross-origin-isolated" allowfullscreen></iframe>`;
+
+  // CORREÇÃO: agora vai direto pro /proxy/ sem o ?url=
+  // O server.js novo espera assim
+  let caminho = url.replace('https://', '').replace('http://', '');
+  // Se for now.gg, tira o dominio porque o proxy já aponta pra lá
+  if(caminho.startsWith('now.gg/')) caminho = caminho.replace('now.gg/', '');
+  if(caminho === 'now.gg') caminho = '';
+
+  document.getElementById('visor').innerHTML = `<iframe src="/proxy/${caminho}" allow="fullscreen; autoplay; clipboard-write" allowfullscreen></iframe>`;
   setTimeout(()=>{ document.getElementById('loading').style.display='none'; }, 3000);
 }
 
-document.getElementById('goBtn').onclick = e => { e.preventDefault(); irPara(document.getElementById('urlInput').value); };
-document.getElementById('urlInput').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); irPara(e.target.value); } });
+document.getElementById('goBtn').onclick = (e)=>{
+  e.preventDefault();
+  irPara(document.getElementById('urlInput').value);
+};
+
+document.getElementById('urlInput').addEventListener('keydown', e=>{
+  if(e.key==='Enter'){ e.preventDefault(); irPara(e.target.value); }
+});
 
 function irJogo(jogo){
   const links={
@@ -64,7 +73,12 @@ function irJogo(jogo){
   };
   irPara(links[jogo]);
 }
-function voltar(){ document.getElementById('visor').innerHTML=''; document.getElementById('loading').style.display='none'; }
+
+function voltar(){
+  document.getElementById('visor').innerHTML='';
+  document.getElementById('loading').style.display='none';
+}
+
 const salvo = localStorage.getItem('ultimaUrl');
 if(salvo) document.getElementById('urlInput').value = salvo;
 </script>
