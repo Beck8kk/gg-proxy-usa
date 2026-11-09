@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GG Proxy USA</title>
+<style>
+  :root { --bg:#0f0f0f; --panel:#1a1a1a; --text:#e0e0e0; --accent:#00ff88; --hover:#00cc6a; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var(--text);
+         display:flex; flex-direction:column; height:100vh; overflow:hidden; }
+  header { padding:.8rem; text-align:center; border-bottom:1px solid #333; background:var(--panel); }
+  h1 { margin:0; font-size:1.4rem; color:var(--accent); text-transform:uppercase; letter-spacing:2px; }
+  .container { flex:1; display:flex; flex-direction:column; padding:1rem; gap:1rem; min-height:0; }
+  .controls { display:flex; gap:.5rem; background:var(--panel); padding:1rem; border-radius:8px; }
+  input[type=text] { flex:1; padding:.75rem; border:1px solid transparent; border-radius:4px;
+                     background:#2a2a2a; color:#fff; font-size:1rem; outline:none; }
+  input[type=text]:focus { border-color:var(--accent); }
+  button { padding:.75rem 1.5rem; border:none; border-radius:4px; background:var(--accent);
+           color:#000; font-weight:bold; cursor:pointer; }
+  button:hover { background:var(--hover); }
+  .shortcuts { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:.5rem; }
+  .shortcut-btn { background:#2a2a2a; color:var(--text); border:1px solid #444; font-size:.9rem; }
+  .shortcut-btn:hover { border-color:var(--accent); color:var(--accent); background:#2a2a2a; }
+  .viewport { flex:1; min-height:0; position:relative; background:#fff; border-radius:8px; overflow:hidden; }
+  iframe { width:100%; height:100%; border:none; display:block; }
+  #status { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+            background:rgba(0,0,0,.85); color:var(--text); text-align:center; padding:1rem; z-index:5; }
+  #status.hidden { display:none; }
+  @media (max-width:768px) { .controls { flex-direction:column; } }
+</style>
+</head>
+<body>
+<header><h1>GG Proxy USA</h1></header>
+
+<div class="container">
+  <div class="controls">
+    <input type="text" id="urlInput" placeholder="https://now.gg/ ou termo de busca"
+           value="https://now.gg/play/roblox-corporation/5349/roblox">
+    <button id="goBtn">GO</button>
+  </div>
+
+  <div class="shortcuts">
+    <button class="shortcut-btn" data-url="https://now.gg/play/roblox-corporation/5349/roblox">Roblox</button>
+    <button class="shortcut-btn" data-url="https://now.gg/play/garena/1909/free-fire-max">Free Fire Max</button>
+    <button class="shortcut-btn" data-url="https://now.gg/play/kitka/2103/stumble-guys">Stumble Guys</button>
+    <button class="shortcut-btn" data-url="https://now.gg/play/indie/2680/99-nights-in-the-forest">99 Nights</button>
+  </div>
+
+  <div class="viewport">
+    <div id="status">Iniciando proxy…</div>
+    <iframe id="gameFrame" allow="fullscreen; autoplay; gamepad; microphone; clipboard-write"></iframe>
+  </div>
+</div>
+
+<script src="/uv/uv.bundle.js"></script>
+<script src="/uv/uv.config.js"></script>
+<script type="module">
+  import { BareMuxConnection } from "/baremux/index.mjs";
+
+  const frame  = document.getElementById("gameFrame");
+  const status = document.getElementById("status");
+  const input  = document.getElementById("urlInput");
+  let ready = null;
+
+  function setStatus(msg) { status.textContent = msg; status.classList.remove("hidden"); }
+  function hideStatus()   { status.classList.add("hidden"); }
+
+  async function init() {
+    if (!("serviceWorker" in navigator)) {
+      throw new Error("Seu navegador não suporta Service Worker (precisa de HTTPS).");
+    }
+    await navigator.serviceWorker.register("/sw.js", { scope: __uv$config.prefix });
+    await navigator.serviceWorker.ready;
+
+    const wispUrl = (location.protocol === "https:" ? "wss" : "ws") + "://" + location.host + "/wisp/";
+    const connection = new BareMuxConnection("/baremux/worker.js");
+    await connection.setTransport("/epoxy/index.mjs", [{ wisp: wispUrl }]);
+  }
+
+  function toUrl(value) {
+    value = value.trim();
+    if (/^https?:\/\//i.test(value)) return value;
+    if (/^[\w-]+(\.[\w-]+)+(\/.*)?$/.test(value)) return "https://" + value;
+    return "https://duckduckgo.com/?q=" + encodeURIComponent(value);
+  }
+
+  async function go(value) {
+    if (!value.trim()) return;
+    try {
+      setStatus("Carregando…");
+      if (!ready) ready = init();
+      await ready;
+      frame.src = __uv$config.prefix + __uv$config.encodeUrl(toUrl(value));
+    } catch (err) {
+      ready = null;
+      console.error(err);
+      setStatus("Erro: " + err.message);
+    }
+  }
+
+  frame.addEventListener("load", () => { if (frame.src && frame.src !== "about:blank") hideStatus(); });
+
+  document.getElementById("goBtn").addEventListener("click", () => go(input.value));
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") go(input.value); });
+  document.querySelectorAll(".shortcut-btn").forEach((b) =>
+    b.addEventListener("click", () => { input.value = b.dataset.url; go(b.dataset.url); })
+  );
+
+  // Só inicia o proxy; não abre nenhum site automaticamente
+  ready = init().then(() => setStatus("Pronto. Escolha um atalho ou digite uma URL."))
+                .catch((e) => { ready = null; setStatus("Erro: " + e.message); });
+</script>
+</body>
+</html>
