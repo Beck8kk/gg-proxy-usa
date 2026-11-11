@@ -39,6 +39,45 @@ const UV_CONFIG = `self.__uv$config = {
 };
 
 if (typeof document !== "undefined") {
+  // === BLOQUEIO DE WEBRTC (reduz vazamento do IP real) ===
+  (function() {
+    'use strict';
+    var noop = function() {};
+    var fakePC = function() {
+      return {
+        localDescription: null, remoteDescription: null,
+        signalingState: 'closed', iceConnectionState: 'closed',
+        connectionState: 'closed', iceGatheringState: 'complete',
+        canTrickleIceCandidates: false,
+        createDataChannel: function() { return { close: noop, send: noop, addEventListener: noop, removeEventListener: noop }; },
+        createOffer: function() { return Promise.resolve({ type: 'offer', sdp: '' }); },
+        createAnswer: function() { return Promise.resolve({ type: 'answer', sdp: '' }); },
+        setLocalDescription: function() { return Promise.resolve(); },
+        setRemoteDescription: function() { return Promise.resolve(); },
+        addIceCandidate: function() { return Promise.resolve(); },
+        getStats: function() { return Promise.resolve(new Map()); },
+        getTransceivers: function() { return []; },
+        getSenders: function() { return []; },
+        getReceivers: function() { return []; },
+        addTrack: function() { return { replaceTrack: noop, stop: noop }; },
+        removeTrack: noop, close: noop,
+        addEventListener: noop, removeEventListener: noop,
+        dispatchEvent: function() { return true; }
+      };
+    };
+    var names = ['RTCPeerConnection', 'webkitRTCPeerConnection', 'mozRTCPeerConnection'];
+    for (var i = 0; i < names.length; i++) {
+      try {
+        Object.defineProperty(window, names[i], {
+          get: function() { return fakePC; },
+          set: noop,
+          configurable: false
+        });
+      } catch (e) {}
+    }
+  })();
+  // === FIM DO BLOQUEIO DE WEBRTC ===
+
   var __ggConnect = function () {
     if (typeof BareMux === "undefined" || !BareMux.BareMuxConnection) return;
     var wisp = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/wisp/";
@@ -49,6 +88,7 @@ if (typeof document !== "undefined") {
   setInterval(__ggConnect, 4000);
 }
 `;
+
 
 const SW_JS = `/*global UVServiceWorker,__uv$config*/
 self.addEventListener("install", (event) => {
